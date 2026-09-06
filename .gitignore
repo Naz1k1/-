@@ -12,3 +12,6 @@ frontend/dist/
 playwright-report/
 test-results/
 data/ocr-cache/
+*.tsbuildinfo
+runtime/
+data/translation-cache.json
