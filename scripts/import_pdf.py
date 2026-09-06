@@ -122,25 +122,30 @@ def extract_assets(path, questions):
     import pypdfium2 as pdfium
     assets=ROOT/'data/assets'; assets.mkdir(parents=True,exist_ok=True)
     render=pdfium.PdfDocument(path)
+    ocr_path=ROOT/'data/ocr-result.json'
+    ocr=json.loads(ocr_path.read_text())['pages'] if ocr_path.exists() else []
     with pdfplumber.open(path) as pdf:
         for q in questions:
             answer_seen=False
             for page_no in q['pages']:
                 page=pdf.pages[page_no-1]
-                words=page.extract_words()
-                correct=[w['top'] for w in words if w['text']=='Correct']
-                headers=[w['bottom'] for w in words if w['text'].startswith('#')]
+                o=ocr[page_no-1]['ocr'] if ocr else {}
+                recognized=list(zip(o.get('rec_texts',[]),o.get('rec_boxes',[])))
+                if not recognized:
+                    recognized=[(t,[min(p[0] for p in poly),min(p[1] for p in poly),max(p[0] for p in poly),max(p[1] for p in poly)]) for t,poly in zip(o.get('rec_texts',[]),o.get('rec_polys',[]))]
+                correct=[box[1]/(200/72) for t,box in recognized if re.match(r'^\s*Correct\s+Answer\s*:', t, re.I)]
+                headers=[box[3]/(200/72) for t,box in recognized if 'question #' in t.lower()]
                 answer_top=min(correct) if correct else page.height
-                top=min(headers) if headers else 35
+                top=min(headers) if headers else 0
                 image=None
                 for n,im in enumerate(page.images):
-                    if im['width']<35 or im['height']<16 or im['top']<top or im['bottom']>page.height-25:
+                    if im['width']<35 or im['height']<16 or im['top']<top or im['top']>page.height-25:
                         continue
                     if image is None: image=render[page_no-1].render(scale=1.7).to_pil()
                     box=tuple(round(v*1.7) for v in (max(0,im['x0']),max(0,im['top']),min(page.width,im['x1']),min(page.height,im['bottom'])))
                     name=f'{q["id"]}-p{page_no}-{n}.webp'
                     image.crop(box).save(assets/name, 'WEBP',quality=90)
-                    key='answer_assets' if answer_seen or im['top']>=answer_top else 'assets'
+                    key='answer_assets' if answer_seen or im['bottom']>=answer_top else 'assets'
                     q[key].append(name)
                 if correct: answer_seen=True
                 page.close()
